@@ -1,0 +1,8 @@
+name = "ledger-sync"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# Run `wrangler kv namespace create LEDGER` and paste the printed id here:
+kv_namespaces = [
+  { binding = "LEDGER", id = "PASTE_KV_NAMESPACE_ID_HERE" }
+]
