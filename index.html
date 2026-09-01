@@ -22,7 +22,7 @@ header{padding:14px 16px 6px;display:flex;align-items:baseline;justify-content:s
 header h1{font-size:18px;margin:0}
 header .mo{color:var(--muted);font-size:13px}
 .wrap{max-width:640px;margin:0 auto}
-.tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:8px 16px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 16px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .tile .l{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .tile .v{font-size:17px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
@@ -41,6 +41,12 @@ header .mo{color:var(--muted);font-size:13px}
 .chipbar{display:flex;gap:6px;overflow-x:auto;padding:2px 16px 6px;-webkit-overflow-scrolling:touch}
 .chipbar span{background:var(--chip);border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted);white-space:nowrap}
 .empty{color:var(--muted);text-align:center;padding:30px 0;font-size:14px}
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 16px 6px}
+.quick button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 6px;font:inherit;font-size:13.5px;font-weight:600}
+.person .row2{display:flex;gap:8px;margin-top:8px}
+.person .row2 button{flex:1;border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:9px;padding:7px 0;font:inherit;font-size:12.5px}
+.person .hist{margin:8px 0 0;padding:0;list-style:none;font-size:12.5px;color:var(--muted)}
+.person .hist li{display:flex;justify-content:space-between;padding:2px 0}
 .bar{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
 .bar .row{max-width:640px;margin:0 auto;display:flex;gap:8px}
 .bar input{flex:1;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:12px;padding:11px 14px;font:inherit;min-width:0}
@@ -72,15 +78,22 @@ a.exp{display:block;text-align:center;color:var(--accent);font-size:13px;margin:
 <div class="wrap">
   <header><h1>Ledger</h1><div><span id="syncdot"></span> <span id="acct"></span> <span class="mo" id="month"></span></div></header>
   <div class="tiles">
-    <div class="tile"><div class="l">Spent</div><div class="v neg" id="tSpent">–</div></div>
-    <div class="tile"><div class="l">Income</div><div class="v pos" id="tInc">–</div></div>
-    <div class="tile"><div class="l">Debt</div><div class="v" id="tDebt">–</div></div>
+    <div class="tile"><div class="l">Spent this month</div><div class="v neg" id="tSpent">–</div></div>
+    <div class="tile"><div class="l">Money in</div><div class="v pos" id="tInc">–</div></div>
+    <div class="tile"><div class="l">Owed to you</div><div class="v pos" id="tOwedYou">–</div></div>
+    <div class="tile"><div class="l">You owe</div><div class="v neg" id="tYouOwe">–</div></div>
+  </div>
+  <div class="quick">
+    <button data-q="spent">💸 I spent money</button>
+    <button data-q="got">💰 I got money</button>
+    <button data-q="lent">🤝 Someone owes me</button>
+    <button data-q="owe">📥 I owe someone</button>
   </div>
   <div class="chipbar" id="chips"></div>
   <div class="tabs">
-    <button data-tab="entries" class="on">Entries</button>
-    <button data-tab="debts">Debts</button>
-    <button data-tab="calc">Calc</button>
+    <button data-tab="entries" class="on">History</button>
+    <button data-tab="debts">People</button>
+    <button data-tab="calc">Summary</button>
   </div>
   <div class="list" id="list"></div>
   <a class="exp" id="export">Export data (JSON)</a>
@@ -99,11 +112,11 @@ a.exp{display:block;text-align:center;color:var(--accent);font-size:13px;margin:
 </div>
 <div class="bar">
   <div class="row">
-    <input id="inp" placeholder='e.g. "spent 12.50 on lunch"' autocomplete="off" enterkeyhint="send">
+    <input id="inp" placeholder="Type it like you say it…" autocomplete="off" enterkeyhint="send">
     <button id="mic" title="Voice entry">🎤</button>
     <button id="send">Add</button>
   </div>
-  <div id="hint">Try: spent 40 on gas · got 1200 salary · owe John 500 · paid John 100 · budget 300 food</div>
+  <div id="hint">Try: spent 40 on gas · John owes me 50 · I owe Sarah 200 · John paid me back 20</div>
 </div>
 <script>
 "use strict";
@@ -120,10 +133,23 @@ const accounts=()=>lsGet("ledger.accounts")||[];
 async function pinHash(pin){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("ledger:"+pin));
   return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");}
 function load(){
-  const d=lsGet(KEY());if(d&&d.entries)return d;
-  const legacy=lsGet("ledger.v1"); // adopt pre-accounts data into the first account
-  if(legacy&&legacy.entries){localStorage.removeItem("ledger.v1");legacy.updatedAt=Date.now();lsSet(KEY(),legacy);return legacy;}
-  return{version:1,entries:[],debts:[],budgets:{},updatedAt:0};
+  let d=lsGet(KEY());
+  if(!d||!d.entries){
+    const legacy=lsGet("ledger.v1"); // adopt pre-accounts data into the first account
+    if(legacy&&legacy.entries){localStorage.removeItem("ledger.v1");legacy.updatedAt=Date.now();d=legacy;}
+    else d={version:2,entries:[],people:[],budgets:{},updatedAt:0};
+  }
+  return migrate(d);
+}
+/* v1 stored one-way debts [{who, amount(I owe them)}]; v2 stores signed
+   person profiles: balance > 0 = they owe me, < 0 = I owe them. */
+function migrate(d){
+  if(!d.people){
+    d.people=(d.debts||[]).map(x=>({id:x.id||uid(),name:cap(x.who),balance:-x.amount,
+      history:[{amt:x.amount,note:"Earlier debt",date:x.date||new Date().toISOString()}]}));
+    delete d.debts;d.version=2;
+  }
+  return d;
 }
 function save(){db.updatedAt=Date.now();lsSet(KEY(),db);pushSync();}
 
@@ -198,26 +224,36 @@ function parse(raw){
   const s=raw.trim().toLowerCase().replace(/[$,]/g,"");
   const num=s.match(/-?\d+(?:\.\d+)?/);
   const amt=num?parseFloat(num[0]):null;
-  const who=cap((s.match(/(?:owe|to|from|paid|pay)\s+([a-z]+)/)||[])[1]||"");
-  if(/^budget/.test(s)&&amt!=null){
+  if(amt==null)return null;
+  let m;
+  if(/^budget/.test(s)){
     const cat=(s.match(/budget\s+[\d.]+\s+(?:for\s+|on\s+)?(\w+)/)||[])[1]||"general";
     return{kind:"budget",cat,amt};
   }
-  if(/\bowe\b|\bborrow(ed)?\b|\bdebt\b/.test(s)&&amt!=null)
-    return{kind:"debt",who:who||"someone",amt};
-  if(/\bpaid\b|\bpay\b|\brepaid\b/.test(s)&&who&&db.debts.some(d=>d.who===who)&&amt!=null)
-    return{kind:"payment",who,amt};
-  if(/\b(got|earned|income|salary|received|made)\b/.test(s)&&amt!=null){
+  /* --- money between you and a person; each creates/updates their profile --- */
+  // "john owes me 50", "lent john 50", "lent 50 to john", "loaned john 20"
+  if((m=s.match(/^(\w+)\s+owes\s+me\b/)))return{kind:"theyOwe",who:cap(m[1]),amt};
+  if(!/lent me|loaned me/.test(s)&&(m=s.match(/\b(?:lent|loaned)\s+(?:[\d.]+\s+to\s+)?(\w+)/)))
+    return{kind:"theyOwe",who:cap(m[1]),amt};
+  // "john paid me back 20", "john paid me 20", "got 20 back from john"
+  if((m=s.match(/^(\w+)\s+paid\s+me\b/)))return{kind:"theyPaid",who:cap(m[1]),amt};
+  if((m=s.match(/\bback\s+from\s+(\w+)/)))return{kind:"theyPaid",who:cap(m[1]),amt};
+  // "i owe sarah 200", "owe sarah 200", "borrowed 200 from sarah", "sarah lent me 200"
+  if(!/owes\s+me/.test(s)&&(m=s.match(/\bowe\s+(\w+)/)))return{kind:"iOwe",who:cap(m[1]),amt};
+  if((m=s.match(/\bborrowed\s+(?:[\d.]+\s+)?from\s+(\w+)/)))return{kind:"iOwe",who:cap(m[1]),amt};
+  if((m=s.match(/^(\w+)\s+(?:lent|loaned)\s+me\b/)))return{kind:"iOwe",who:cap(m[1]),amt};
+  // "paid sarah 100", "paid sarah back 100", "gave john 50 back"
+  if((m=s.match(/\b(?:paid|pay|repaid)\s+(\w+)/))&&m[1]!=="for"&&m[1]!=="off")
+    return{kind:"iPaid",who:cap(m[1]),amt};
+  if((m=s.match(/\bgave\s+(\w+)\s+[\d.]+\s+back/)))return{kind:"iPaid",who:cap(m[1]),amt};
+  /* --- plain money in / money out --- */
+  if(/\b(got|earned|income|salary|received|made|won)\b/.test(s))
     return{kind:"income",amt,note:noteFrom(s)};
-  }
-  if(amt!=null){ // default: expense
-    return{kind:"expense",amt,cat:catFrom(s),note:noteFrom(s)};
-  }
-  return null;
+  return{kind:"expense",amt,cat:catFrom(s),note:noteFrom(s)}; // default: expense
 }
 function noteFrom(s){
   const m=s.match(/(?:on|for|from)\s+(.+)$/);
-  return cap((m?m[1]:s).replace(/-?\d+(\.\d+)?/g,"").trim())||"Entry";
+  return cap((m?m[1]:s).replace(/-?\d+(\.\d+)?/g,"").replace(/\s+/g," ").trim())||"Entry";
 }
 const CATS={food:/lunch|dinner|breakfast|food|grocer|coffee|restaurant|snack/,
   transport:/gas|fuel|uber|bus|train|taxi|parking|car/,
@@ -228,20 +264,33 @@ function catFrom(s){for(const c in CATS)if(CATS[c].test(s))return c;return"other
 const cap=w=>w?w[0].toUpperCase()+w.slice(1):"";
 
 /* ---------- actions ---------- */
+function person(name){
+  let p=db.people.find(x=>x.name.toLowerCase()===name.toLowerCase());
+  if(!p){p={id:uid(),name,balance:0,history:[]};db.people.push(p);}
+  return p;
+}
+function owesPhrase(p){
+  if(Math.abs(p.balance)<0.005)return p.name+" and you are even";
+  return p.balance>0?p.name+" owes you "+fmt(p.balance):"You owe "+p.name+" "+fmt(-p.balance);
+}
 function apply(p){
   const now=new Date().toISOString();
   if(p.kind==="expense"||p.kind==="income"){
     db.entries.unshift({id:uid(),type:p.kind,amount:p.amt,category:p.cat||"income",note:p.note,date:now,source:"manual"});
-    hint((p.kind==="expense"?"Spent ":"Income ")+fmt(p.amt)+" — "+p.note);
-  }else if(p.kind==="debt"){
-    let d=db.debts.find(d=>d.who===p.who);
-    if(d)d.amount+=p.amt;else db.debts.push({id:uid(),who:p.who,amount:p.amt,date:now});
-    hint("Debt: you owe "+p.who+" "+fmt(p.amt)+" more");
-  }else if(p.kind==="payment"){
-    const d=db.debts.find(d=>d.who===p.who);
-    d.amount-=p.amt;if(d.amount<=0.005)db.debts=db.debts.filter(x=>x!==d);
-    db.entries.unshift({id:uid(),type:"expense",amount:p.amt,category:"debt",note:"Paid "+p.who,date:now,source:"manual"});
-    hint("Paid "+p.who+" "+fmt(p.amt));
+    hint((p.kind==="expense"?"Spent ":"Got ")+fmt(p.amt)+" — "+p.note);
+  }else if(p.kind==="theyOwe"||p.kind==="iOwe"||p.kind==="theyPaid"||p.kind==="iPaid"){
+    const pr=person(p.who);
+    const labels={theyOwe:"They borrowed",iOwe:"You borrowed",theyPaid:p.who+" paid you",iPaid:"You paid "+p.who};
+    // balance > 0 = they owe you. Borrowing moves it away from zero; paying moves it back.
+    if(p.kind==="theyOwe")pr.balance+=p.amt;
+    if(p.kind==="iOwe")pr.balance-=p.amt;
+    if(p.kind==="theyPaid"){pr.balance-=p.amt;
+      db.entries.unshift({id:uid(),type:"income",amount:p.amt,category:"debt",note:p.who+" paid you back",date:now,source:"manual"});}
+    if(p.kind==="iPaid"){pr.balance+=p.amt;
+      db.entries.unshift({id:uid(),type:"expense",amount:p.amt,category:"debt",note:"Paid "+p.who+" back",date:now,source:"manual"});}
+    pr.history.unshift({amt:p.amt,note:labels[p.kind],date:now});
+    if(Math.abs(pr.balance)<0.005&&p.kind!=="theyOwe"&&p.kind!=="iOwe")pr.balance=0;
+    hint(owesPhrase(pr));
   }else if(p.kind==="budget"){
     db.budgets[p.cat]=p.amt;hint("Budget for "+p.cat+": "+fmt(p.amt)+"/mo");
   }
@@ -262,9 +311,10 @@ function render(){
   const me=monthEntries();
   const spent=me.filter(e=>e.type==="expense").reduce((a,e)=>a+e.amount,0);
   const inc=me.filter(e=>e.type==="income").reduce((a,e)=>a+e.amount,0);
-  const debt=db.debts.reduce((a,d)=>a+d.amount,0);
+  const owedYou=db.people.reduce((a,p)=>a+Math.max(p.balance,0),0);
+  const youOwe=db.people.reduce((a,p)=>a+Math.max(-p.balance,0),0);
   tSpent.textContent=fmt(spent);tInc.textContent=fmt(inc);
-  tDebt.textContent=fmt(debt);tDebt.className="v"+(debt>0?" neg":"");
+  tOwedYou.textContent=fmt(owedYou);tYouOwe.textContent=fmt(youOwe);
   month.textContent=new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"});
   // budget chips
   const byCat={};me.filter(e=>e.type==="expense").forEach(e=>byCat[e.category]=(byCat[e.category]||0)+e.amount);
@@ -282,23 +332,30 @@ function render(){
       <button data-del="${e.id}">✕</button></div>`).join("")
       :'<div class="empty">No entries yet. Type or speak one below.</div>';
   }else if(tab==="debts"){
-    list.innerHTML=db.debts.length?db.debts.map(d=>`
-      <div class="entry"><div class="d"><div class="t">${esc(d.who)}</div>
-      <div class="s">say "paid ${esc(d.who)} 50" to reduce</div></div>
-      <div class="amt exp">${fmt(d.amount)}</div>
-      <button data-deld="${d.id}">✕</button></div>`).join("")
-      :'<div class="empty">No debts. Say "owe John 500".</div>';
+    list.innerHTML=db.people.length?db.people.map(p=>`
+      <div class="entry person" style="display:block"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div class="d"><div class="t">${esc(owesPhrase(p))}</div>
+        <div class="s">${p.history.length} entr${p.history.length===1?"y":"ies"}</div></div>
+        <div class="amt ${p.balance>=0?"inc":"exp"}">${fmt(Math.abs(p.balance))}</div>
+        <button data-deld="${p.id}">✕</button></div>
+      <div class="row2">
+        <button data-pact="theyPaid" data-pid="${p.id}">💵 They paid me</button>
+        <button data-pact="iPaid" data-pid="${p.id}">💸 I paid them</button>
+        <button data-pact="hist" data-pid="${p.id}">📜 History</button>
+      </div>
+      <ul class="hist" hidden id="h-${p.id}">${p.history.map(h=>`<li><span>${esc(h.note)}</span><span>${fmt(h.amt)} · ${new Date(h.date).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span></li>`).join("")}</ul>
+      </div>`).join("")
+      :'<div class="empty">Nobody yet. Try "John owes me 50" or "I owe Sarah 200" — a profile for that person appears here.</div>';
   }else{
     const days=new Date().getDate();
     const daysInMo=new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate();
     const rate=spent/days, proj=rate*daysInMo, net=inc-spent;
     const top=Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0];
-    list.innerHTML=`<div class="calcbox"><h3>This month</h3>
-      <p>Net (income − spent): <b>${fmt(net)}</b></p>
-      <p>Daily burn rate: <b>${fmt(rate||0)}</b>/day</p>
-      <p>Projected month-end spend: <b>${fmt(proj||0)}</b></p>
-      ${top?`<p>Biggest category: <b>${top[0]}</b> at ${fmt(top[1])}</p>`:""}
-      <p>Total outstanding debt: <b>${fmt(debt)}</b>${debt>0&&net>0?` — cleared in ~<b>${Math.ceil(debt/net)}</b> months at this net rate`:""}</p>
+    list.innerHTML=`<div class="calcbox"><h3>This month, in plain words</h3>
+      <p>You've ${net>=0?"kept":"spent"} <b>${fmt(Math.abs(net))}</b> ${net>=0?"more than you spent":"more than came in"}.</p>
+      <p>You spend about <b>${fmt(rate||0)}</b> a day. Keep that up and the month ends around <b>${fmt(proj||0)}</b> spent.</p>
+      ${top?`<p>Most of it goes to <b>${top[0]}</b> (${fmt(top[1])}).</p>`:""}
+      <p>People owe you <b>${fmt(owedYou)}</b> and you owe people <b>${fmt(youOwe)}</b>${youOwe>0&&net>0?` — at this pace you could clear that in about <b>${Math.ceil(youOwe/net)}</b> month${Math.ceil(youOwe/net)===1?"":"s"}`:""}.</p>
     </div>`;
   }
 }
@@ -315,8 +372,39 @@ document.querySelector(".tabs").addEventListener("click",e=>{
 });
 list.addEventListener("click",e=>{
   const del=e.target.dataset.del,deld=e.target.dataset.deld;
+  const pact=e.target.dataset.pact,pid=e.target.dataset.pid;
   if(del){db.entries=db.entries.filter(x=>x.id!==del);save();render();}
-  if(deld){db.debts=db.debts.filter(x=>x.id!==deld);save();render();}
+  if(deld){
+    const p=db.people.find(x=>x.id===deld);
+    if(p&&confirm("Remove "+p.name+"'s profile?")){db.people=db.people.filter(x=>x.id!==deld);save();render();}
+  }
+  if(pact&&pid){
+    const p=db.people.find(x=>x.id===pid);if(!p)return;
+    if(pact==="hist"){const h=document.getElementById("h-"+pid);h.hidden=!h.hidden;return;}
+    const owed=pact==="theyPaid"?Math.max(p.balance,0):Math.max(-p.balance,0);
+    const v=prompt(pact==="theyPaid"?"How much did "+p.name+" pay you?":"How much did you pay "+p.name+"?",owed>0?owed.toFixed(2):"");
+    if(v==null)return;const amt=parseFloat(v.replace(/[$,]/g,""));
+    if(!(amt>0)){hint("That's not an amount");return;}
+    apply({kind:pact,who:p.name,amt});
+  }
+});
+/* guided entry — two quick questions, no syntax to learn */
+document.querySelector(".quick").addEventListener("click",e=>{
+  const q=e.target.dataset.q;if(!q)return;
+  const ask=(t,d)=>{const v=prompt(t,d||"");return v==null?null:v.trim();};
+  const money=t=>{const v=ask(t);if(v==null)return null;const n=parseFloat(v.replace(/[$,]/g,""));return n>0?n:(hint("That's not an amount"),null);};
+  if(q==="spent"){const amt=money("How much did you spend?");if(amt==null)return;
+    const what=ask("On what? (e.g. lunch, gas)")||"something";
+    apply({kind:"expense",amt,cat:catFrom(what.toLowerCase()),note:cap(what)});}
+  if(q==="got"){const amt=money("How much came in?");if(amt==null)return;
+    const what=ask("From where? (e.g. salary, gift)")||"Money in";
+    apply({kind:"income",amt,note:cap(what)});}
+  if(q==="lent"){const who=ask("Who owes you?");if(!who)return;
+    const amt=money("How much does "+cap(who)+" owe you?");if(amt==null)return;
+    apply({kind:"theyOwe",who:cap(who),amt});}
+  if(q==="owe"){const who=ask("Who do you owe?");if(!who)return;
+    const amt=money("How much do you owe "+cap(who)+"?");if(amt==null)return;
+    apply({kind:"iOwe",who:cap(who),amt});}
 });
 document.getElementById("export").onclick=()=>{
   const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
