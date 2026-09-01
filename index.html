@@ -232,20 +232,23 @@ function parse(raw){
   }
   /* --- money between you and a person; each creates/updates their profile --- */
   // "john owes me 50", "lent john 50", "lent 50 to john", "loaned john 20"
-  if((m=s.match(/^(\w+)\s+owes\s+me\b/)))return{kind:"theyOwe",who:cap(m[1]),amt};
-  if(!/lent me|loaned me/.test(s)&&(m=s.match(/\b(?:lent|loaned)\s+(?:[\d.]+\s+to\s+)?(\w+)/)))
-    return{kind:"theyOwe",who:cap(m[1]),amt};
-  // "john paid me back 20", "john paid me 20", "got 20 back from john"
-  if((m=s.match(/^(\w+)\s+paid\s+me\b/)))return{kind:"theyPaid",who:cap(m[1]),amt};
-  if((m=s.match(/\bback\s+from\s+(\w+)/)))return{kind:"theyPaid",who:cap(m[1]),amt};
-  // "i owe sarah 200", "owe sarah 200", "borrowed 200 from sarah", "sarah lent me 200"
-  if(!/owes\s+me/.test(s)&&(m=s.match(/\bowe\s+(\w+)/)))return{kind:"iOwe",who:cap(m[1]),amt};
-  if((m=s.match(/\bborrowed\s+(?:[\d.]+\s+)?from\s+(\w+)/)))return{kind:"iOwe",who:cap(m[1]),amt};
-  if((m=s.match(/^(\w+)\s+(?:lent|loaned)\s+me\b/)))return{kind:"iOwe",who:cap(m[1]),amt};
-  // "paid sarah 100", "paid sarah back 100", "gave john 50 back"
-  if((m=s.match(/\b(?:paid|pay|repaid)\s+(\w+)/))&&m[1]!=="for"&&m[1]!=="off")
-    return{kind:"iPaid",who:cap(m[1]),amt};
-  if((m=s.match(/\bgave\s+(\w+)\s+[\d.]+\s+back/)))return{kind:"iPaid",who:cap(m[1]),amt};
+  const forNote=(s.match(/\bfor\s+(.+)$/)||[])[1]; // "…for gas and snacks" → reason
+  // "john owes me 50", "aunt mary owes me 20 for gas and snacks", "john owes me 20 bucks"
+  if((m=s.match(/^(.+?)\s+owes?\s+me\b/)))return{kind:"theyOwe",who:personName(m[1]),amt,note:forNote};
+  if(!/lent me|loaned me/.test(s)&&(m=s.match(/\b(?:lent|loaned)\s+(?:[\d.]+\s+(?:bucks\s+|dollars\s+)?to\s+)?(.+?)(?=\s+\$?\d|\s+for\b|\s*$)/)))
+    return{kind:"theyOwe",who:personName(m[1]),amt,note:forNote};
+  // "john paid me back 20", "my brother paid me 20", "got 20 back from john"
+  if((m=s.match(/^(.+?)\s+paid\s+me\b/)))return{kind:"theyPaid",who:personName(m[1]),amt,note:forNote};
+  if((m=s.match(/\bback\s+from\s+(.+?)(?=\s+for\b|\s*$)/)))return{kind:"theyPaid",who:personName(m[1]),amt,note:forNote};
+  // "i owe sarah 200", "owe my brother 200 for rent", "borrowed 200 from sarah", "sarah lent me 200"
+  if(!/owes?\s+me/.test(s)&&(m=s.match(/\bowe\s+(.+?)(?=\s+\$?\d|\s+for\b|\s*$)/)))
+    return{kind:"iOwe",who:personName(m[1]),amt,note:forNote};
+  if((m=s.match(/\bborrowed\s+(?:[\d.]+\s+)?from\s+(.+?)(?=\s+for\b|\s*$)/)))return{kind:"iOwe",who:personName(m[1]),amt,note:forNote};
+  if((m=s.match(/^(.+?)\s+(?:lent|loaned)\s+me\b/)))return{kind:"iOwe",who:personName(m[1]),amt,note:forNote};
+  // "paid sarah 100", "paid my brother back 100", "gave john 50 back"
+  if((m=s.match(/\b(?:paid|repaid)\s+(.+?)(?=\s+back\b|\s+\$?\d|\s+for\b|\s*$)/))&&m[1]&&m[1]!=="off")
+    return{kind:"iPaid",who:personName(m[1]),amt,note:forNote};
+  if((m=s.match(/\bgave\s+(.+?)\s+[\d.]+\s+back/)))return{kind:"iPaid",who:personName(m[1]),amt,note:forNote};
   /* --- plain money in / money out --- */
   if(/\b(got|earned|income|salary|received|made|won)\b/.test(s))
     return{kind:"income",amt,note:noteFrom(s)};
@@ -262,6 +265,13 @@ const CATS={food:/lunch|dinner|breakfast|food|grocer|coffee|restaurant|snack/,
   health:/doctor|pharmacy|gym|med/};
 function catFrom(s){for(const c in CATS)if(CATS[c].test(s))return c;return"other";}
 const cap=w=>w?w[0].toUpperCase()+w.slice(1):"";
+/* clean a spoken/typed name: drop filler words, keep multi-word names,
+   capitalize each word ("so my aunt mary" → "Aunt Mary") */
+function personName(raw){
+  let w=raw.trim().split(/\s+/).filter(x=>!["so","and","also","well","ok","okay","that","um","uh","i","think","my","the","a"].includes(x));
+  if(!w.length)w=[raw.trim().split(/\s+/).pop()];
+  return w.slice(-3).map(cap).join(" ");
+}
 
 /* ---------- actions ---------- */
 function person(name){
@@ -288,9 +298,12 @@ function apply(p){
       db.entries.unshift({id:uid(),type:"income",amount:p.amt,category:"debt",note:p.who+" paid you back",date:now,source:"manual"});}
     if(p.kind==="iPaid"){pr.balance+=p.amt;
       db.entries.unshift({id:uid(),type:"expense",amount:p.amt,category:"debt",note:"Paid "+p.who+" back",date:now,source:"manual"});}
-    pr.history.unshift({amt:p.amt,note:labels[p.kind],date:now});
+    pr.history.unshift({amt:p.amt,note:labels[p.kind]+(p.note?" — for "+p.note:""),date:now});
     if(Math.abs(pr.balance)<0.005&&p.kind!=="theyOwe"&&p.kind!=="iOwe")pr.balance=0;
     hint(owesPhrase(pr));
+    // jump to the People tab so the new/updated profile is visible right away
+    tab="debts";
+    document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab==="debts"));
   }else if(p.kind==="budget"){
     db.budgets[p.cat]=p.amt;hint("Budget for "+p.cat+": "+fmt(p.amt)+"/mo");
   }
@@ -425,7 +438,7 @@ if(SR){
   rec.onresult=e=>{const t=e.results[0][0].transcript;inp.value=t;submit(t);};
 }else{mic.onclick=()=>hint("Voice not supported in this browser — use Chrome/Safari");}
 
-if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").then(r=>r.update()).catch(()=>{});
 /* start: auto-enter a lone PIN-less account, else show the picker */
 (()=>{const as=accounts();
   if(as.length===1&&!as[0].pinHash)enter(as[0].name);
