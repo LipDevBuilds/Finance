@@ -365,7 +365,6 @@ function render(){
       <div class="entry person" style="display:block"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div class="d"><div class="t">${esc(owesPhrase(p))}</div>
         <div class="s">${p.history.length} entr${p.history.length===1?"y":"ies"}</div></div>
-        <div class="amt ${p.balance>=0?"inc":"exp"}">${fmt(Math.abs(p.balance))}</div>
         <button data-deld="${p.id}">✕</button></div>
       <div class="row2">
         <button data-pact="theyPaid" data-pid="${p.id}">They paid me</button>
