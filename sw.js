@@ -1,7 +1,7 @@
 // Network-first with offline fallback: every load gets the newest deployed
 // version when online, and the last cached copy when offline. (v1 was
 // cache-first and pinned users to the first version they ever loaded.)
-const CACHE = "ledger-v2";
+const CACHE = "ledger-v3";
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
